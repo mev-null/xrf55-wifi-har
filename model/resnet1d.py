@@ -1,14 +1,9 @@
 import torch.nn as nn
-import torch.utils.model_zoo as model_zoo
-import torch.nn.functional as F
-import torch
-import numpy as np
 
 
 def conv3x3(in_planes, out_planes, stride=1, group=1):
     """3x3 convolution with padding"""
-    return nn.Conv1d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False, groups=group)
+    return nn.Conv1d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, groups=group)
 
 
 def conv1x1(in_planes, out_planes, stride=1, group=1):
@@ -87,7 +82,6 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-
     def __init__(self, block, layers, inchannel=270, activity_num=55):
         super(ResNet, self).__init__()
         # B*270*1000
@@ -108,7 +102,6 @@ class ResNet(nn.Module):
         self.conv4 = conv3x3(512, 512, stride=2)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Linear(512 * block.expansion, activity_num)
-        
 
     def _make_layer(self, block, planes, blocks, stride=1, group=1):
         downsample = None
@@ -141,8 +134,10 @@ class ResNet(nn.Module):
 
         return output
 
+
 class ResNetLargeBert3(nn.Module):
     '''bert pooling: 1024->55'''
+
     def __init__(self, block, layers, inchannel=270, activity_num=55):
         super(ResNetLargeBert3, self).__init__()
         # B*270*1000
@@ -163,7 +158,6 @@ class ResNetLargeBert3(nn.Module):
         self.conv4 = conv3x3(1024, 1024, stride=2)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Linear(1024 * block.expansion, activity_num)
-       
 
     def _make_layer(self, block, planes, blocks, stride=1, group=1):
         downsample = None
@@ -197,50 +191,45 @@ class ResNetLargeBert3(nn.Module):
         return output, output_bert
 
 
-       
 def resnet18():
-    """ return a ResNet 18 object
-    """
+    """return a ResNet 18 object"""
     return ResNet(BasicBlock, [2, 2, 2, 2])
 
+
 def resnet18_mutual():
-    """ return a ResNet 18 object
-    """
+    """return a ResNet 18 object"""
     return ResNetLargeBert3(BasicBlock, [2, 2, 2, 2])
 
+
 def resnet34():
-    """ return a ResNet 34 object
-    """
+    """return a ResNet 34 object"""
     return ResNet(BasicBlock, [3, 4, 6, 3])
 
+
 def resnet34_mutual():
-    """ return a ResNet 34 object
-    """
+    """return a ResNet 34 object"""
     return ResNetLargeBert3(BasicBlock, [3, 4, 6, 3])
 
 
 def resnet50():
-    """ return a ResNet 50 object
-    """
+    """return a ResNet 50 object"""
     return ResNet(Bottleneck, [3, 4, 6, 3])
 
+
 def resnet50_mutual():
-    return ResNetLargeBert4(Bottleneck, [3, 4, 6, 3])
+    return ResNetLargeBert4(Bottleneck, [3, 4, 6, 3])  # noqa: F821 (not defined upstream)
 
 
 def resnet101():
-    """ return a ResNet 101 object
-    """
+    """return a ResNet 101 object"""
     return ResNet(Bottleneck, [3, 4, 23, 3])
 
+
 def resnet101_mutual():
-    """ return a ResNet 101 object
-    """
-    return ResNetLargeBert4(Bottleneck, [3, 4, 23, 3])
+    """return a ResNet 101 object"""
+    return ResNetLargeBert4(Bottleneck, [3, 4, 23, 3])  # noqa: F821 (not defined upstream)
 
 
 def resnet152():
-    """ return a ResNet 152 object
-    """
+    """return a ResNet 152 object"""
     return ResNet(Bottleneck, [3, 8, 36, 3])
-

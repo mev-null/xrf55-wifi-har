@@ -16,8 +16,7 @@ class Settings:
         self.raw_root = os.environ.get('XRF55_RAW_ROOT', ROOT + 'dataset/Raw_dataset/')
 
     def __repr__(self):
-        return (f'Settings(raw_root={self.raw_root!r}, '
-                f'split_root={self.split_root!r}, result_root={self.result_root!r})')
+        return f'Settings(raw_root={self.raw_root!r}, split_root={self.split_root!r}, result_root={self.result_root!r})'
 
 
 def get_settings() -> Settings:

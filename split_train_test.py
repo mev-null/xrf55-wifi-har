@@ -1,16 +1,7 @@
 import os
 import shutil
 
-import torch
-import torch.utils.data as Data
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-import h5py
-import csv
-import time
-
 
 MODALITIES = ("RFID", "WiFi", "mmWave")
 

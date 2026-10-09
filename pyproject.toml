@@ -19,6 +19,13 @@ dev = ["ruff==0.16.10"]
 [tool.uv]
 package = false
 
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+# keep upstream quote style to minimize changes
+quote-style = "preserve"
+
 [tool.ruff.lint]
 # pyflakes and basic pycodestyle errors, plus import sorting
 select = ["E4", "E7", "E9", "F", "I"]

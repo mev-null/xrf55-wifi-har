@@ -1,15 +1,5 @@
 import os
-import shutil
 
-import torch
-import torch.utils.data as Data
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-import h5py
-import csv
-import time
 
 def generate_txt_mix(data_src_path, txt_save_path, txt_name):
 

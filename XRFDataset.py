@@ -1,11 +1,11 @@
 import logging
-import torch
-import csv
-from torch.utils.data.dataset import Dataset, IterableDataset
-import pandas as pd
+
 import numpy as np
-import h5py
+import torch
+from torch.utils.data.dataset import Dataset
+
 log = logging.getLogger(__name__)
+
 
 class XRFBertDatasetNewMix(Dataset):
     def __init__(self, file_path='./dataset/XRFDataset/', is_train=True, scene='dml'):
@@ -20,10 +20,7 @@ class XRFBertDatasetNewMix(Dataset):
             self.file = self.file_path + self.scene + '_val.txt'
         file = open(self.file)
         val_list = file.readlines()
-        self.data = {
-            'file_name': list(),
-            'label': list()
-        }
+        self.data = {'file_name': list(), 'label': list()}
         self.path = self.file_path + self.scene + '_new_data/'
         for string in val_list:
             self.data['file_name'].append(string.split(',')[0])
@@ -44,17 +41,18 @@ class XRFBertDatasetNewMix(Dataset):
         return wifi_data, rfid_data, mmwave_data, label, vector
 
 
-
 class XRFWiFiDataset(Dataset):
     """WiFi-only variant of XRFBertDatasetNewMix: same txt lists and files, no RFID/mmWave/BERT.
 
     subjects: keep only these subject IDs (None = all). The 14/6 split per subject is kept
     because it comes from split_train_test.py.
     """
+
     def __init__(self, file_path=None, is_train=True, scene='dml', subjects=None):
         super(XRFWiFiDataset, self).__init__()
         if file_path is None:
             from settings import get_settings
+
             file_path = get_settings().split_root
         self.file_path = file_path
         self.is_train = is_train
@@ -100,4 +98,3 @@ def load_mmwave(filename, is_train, path='./dataset/XRFDataset/'):
         path = path + 'test_data/'
     mmWave_data = np.load(path + 'mmWave/' + filename + ".npy")
     return torch.from_numpy(mmWave_data).float()
-
