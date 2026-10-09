@@ -16,8 +16,10 @@ def generate_txt_mix(data_src_path, txt_save_path, txt_name):
     train_list = []
     val_list = []
 
-    train_src = data_src_path + "train_data/RFID/"
-    test_src = data_src_path + "test_data/RFID"
+    # Use the first modality that split_train_test.py produced (RFID in the original 3-modality setup).
+    modality = next(m for m in ("RFID", "WiFi", "mmWave") if os.path.isdir(data_src_path + "train_data/" + m))
+    train_src = data_src_path + "train_data/" + modality + "/"
+    test_src = data_src_path + "test_data/" + modality + "/"
 
     for file in os.listdir(train_src):
         filename = file.split(".")[0]
@@ -42,10 +44,8 @@ def generate_txt_mix(data_src_path, txt_save_path, txt_name):
         print("test_dataset len：" + str(len(val_list)))
 
 
-
 if __name__ == '__main__':
+    from settings import get_settings
 
-    root_path = "./dataset/XRF_dataset/"
-    data_src_path = "./dataset/XRF_dataset/"
-    txt_name = "dml"
-    generate_txt_mix(data_src_path, root_path, txt_name)
+    split_root = get_settings().split_root
+    generate_txt_mix(split_root, split_root, "dml")
