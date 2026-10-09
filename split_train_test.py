@@ -29,7 +29,7 @@ def split_train_test_new(root_ns="./dataset/Raw_dataset/", dst_wr="./dataset/XRF
                 shutil.rmtree(out)
             os.makedirs(out)
 
-    for file in tqdm(os.listdir(root_ns + modalities[0] + "/")):
+    for file in tqdm(sorted(os.listdir(root_ns + modalities[0] + "/"))):
         if not file.endswith(".npy"):
             continue
         filename = file.split(".")[0]  # act name

@@ -21,13 +21,14 @@ def generate_txt_mix(data_src_path, txt_save_path, txt_name):
     train_src = data_src_path + "train_data/" + modality + "/"
     test_src = data_src_path + "test_data/" + modality + "/"
 
-    for file in os.listdir(train_src):
+    # sorted(): os.listdir order is arbitrary; a fixed order makes runs reproducible across machines.
+    for file in sorted(os.listdir(train_src)):
         filename = file.split(".")[0]
         fulname = filename.split("_")  # vol, act, idx.txt/.mat
         vol_index = fulname[0]
         act_index = fulname[1]
         train_list.append(filename + "," + vol_index + "," + act_index + "\n")
-    for file in os.listdir(test_src):
+    for file in sorted(os.listdir(test_src)):
         filename = file.split(".")[0]
         fulname = filename.split("_")  # vol, act, idx.txt/.mat
         vol_index = fulname[0]
