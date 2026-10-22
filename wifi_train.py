@@ -1,17 +1,20 @@
-"""Wi-Fi only ResNet18 baseline on XRF55 (paper Table 6: 87.26%, all subjects).
+"""Wi-Fi only training on XRF55: ResNet18 baseline (paper Table 6: 87.26%, all subjects) and THAT.
 
 Derived from dml_train.py in airslab2020/XRF55-repo: one Wi-Fi model trained with cross-entropy only
-(no mutual-learning or BERT terms), with the same optimizer and schedule defaults.
+(no mutual-learning or BERT terms); the defaults are the optimizer and schedule of dml_train.py.
 The reported accuracy is the last epoch's; the test set is never used to pick a model.
 
     python split_train_test.py && python generate_txt.py
     python wifi_train.py --group resnet18_baseline --seed 0
+    python wifi_train.py --group that --seed 0 --subjects 1-11 --model that \
+        --batch_size 16 --epochs 50 --lr 1e-4 --lr_schedule cosine --warmup_epochs 5 --grad_clip 1.0
 
 Writes config, metrics, history, predictions and last-epoch weights to <result_root>/<group>/seed<seed>/.
 """
 
 import argparse
 import json
+import math
 import os
 import platform
 import re
@@ -22,7 +25,7 @@ import torch.nn as nn
 import torch.utils.data as Data
 
 import XRFDataset
-from model import resnet1d
+from model import resnet1d, that
 from settings import get_settings
 
 NUM_CLASSES = 55
@@ -45,15 +48,27 @@ def parse_args():
         help='experiment name, e.g. resnet18_baseline; output: <result_root>/<group>/seed<seed>/',
     )
     parser.add_argument('--seed', type=int, default=0, help='random seed')
-    parser.add_argument('--model', default='resnet18', help='function in model/resnet1d.py')
+    parser.add_argument('--model', default='resnet18', help='function in model/resnet1d.py or model/that.py')
     parser.add_argument(
         '--subjects', type=parse_subjects, default=None, help='subject IDs, e.g. "1-11" or "1,3,5" (default: all)'
     )
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=0.001, help='Adam learning rate')
-    parser.add_argument('--lr_milestones', type=int, nargs='+', default=[40, 80, 120, 160], help='epochs to decay lr')
-    parser.add_argument('--lr_gamma', type=float, default=0.5, help='lr decay factor at each milestone')
+    parser.add_argument(
+        '--lr_schedule',
+        choices=['step', 'cosine'],
+        default='step',
+        help='step: x lr_gamma at each milestone; cosine: half cosine to 0, updated every batch',
+    )
+    parser.add_argument(
+        '--lr_milestones', type=int, nargs='+', default=[40, 80, 120, 160], help='step: epochs to decay lr'
+    )
+    parser.add_argument('--lr_gamma', type=float, default=0.5, help='step: lr decay factor at each milestone')
+    parser.add_argument(
+        '--warmup_epochs', type=int, default=0, help='cosine: raise lr linearly over the first N epochs first (0: off)'
+    )
+    parser.add_argument('--grad_clip', type=float, default=0.0, help='clip the gradient norm to this value (0: off)')
     parser.add_argument('--num_workers', type=int, default=4, help='DataLoader workers')
     return parser.parse_args()
 
@@ -73,6 +88,24 @@ def environment():
         'torch': torch.__version__,
         'os': platform.platform(),
     }
+
+
+def build_model(name):
+    for module in (resnet1d, that):
+        if hasattr(module, name):
+            return getattr(module, name)()
+    raise ValueError(f'unknown --model {name!r}: not a function in model/resnet1d.py or model/that.py')
+
+
+def cosine_schedule(warmup_steps, total_steps):
+    """lr multiplier per batch: linear warmup to 1, then a half cosine down to 0."""
+
+    def scale(step):
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        return 0.5 * (1 + math.cos(math.pi * (step - warmup_steps) / (total_steps - warmup_steps)))
+
+    return scale
 
 
 def get_device():
@@ -145,9 +178,16 @@ if __name__ == "__main__":
     print(f"{settings}\ndevice={device} subjects={subjects} train={len(train_dataset)} test={len(test_dataset)}")
 
     '''========================= Model =========================='''
-    model = getattr(resnet1d, args.model)().to(device)
+    model = build_model(args.model).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_milestones, gamma=args.lr_gamma)
+    if args.lr_schedule == 'cosine':  # stepped after every batch
+        steps = len(train_data)
+        scale = cosine_schedule(args.warmup_epochs * steps, args.epochs * steps)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, scale)
+    else:  # stepped after every epoch
+        if args.warmup_epochs:
+            raise ValueError('--warmup_epochs needs --lr_schedule cosine')
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_milestones, gamma=args.lr_gamma)
     loss_ce = nn.CrossEntropyLoss()
 
     '''========================= Config =========================='''
@@ -179,9 +219,14 @@ if __name__ == "__main__":
             loss = loss_ce(outputs, labels)
             optimizer.zero_grad()
             loss.backward()
+            if args.grad_clip > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
+            if args.lr_schedule == 'cosine':
+                scheduler.step()
             losses += loss.item() * len(labels)
-        scheduler.step()
+        if args.lr_schedule == 'step':
+            scheduler.step()
         train_loss = losses / len(train_dataset)  # running mean over the epoch, train mode
         if not np.isfinite(train_loss):
             raise RuntimeError(f"train loss became {train_loss} at epoch {epoch}")
