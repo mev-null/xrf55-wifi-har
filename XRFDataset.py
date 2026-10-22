@@ -46,9 +46,10 @@ class XRFWiFiDataset(Dataset):
 
     subjects: keep only these subject IDs (None = all). The 14/6 split per subject is kept
     because it comes from split_train_test.py.
+    features: also return the band power features (extract_features.py): ((amplitude, features), label).
     """
 
-    def __init__(self, file_path=None, is_train=True, scene='dml', subjects=None):
+    def __init__(self, file_path=None, is_train=True, scene='dml', subjects=None, features=False):
         super(XRFWiFiDataset, self).__init__()
         if file_path is None:
             from settings import get_settings
@@ -56,6 +57,7 @@ class XRFWiFiDataset(Dataset):
             file_path = get_settings().split_root
         self.file_path = file_path
         self.is_train = is_train
+        self.features = features
         list_file = file_path + scene + ('_train.txt' if is_train else '_val.txt')
         self.data = {'file_name': list(), 'subject': list(), 'label': list()}
         for string in open(list_file).readlines():
@@ -70,7 +72,15 @@ class XRFWiFiDataset(Dataset):
         return len(self.data['label'])
 
     def __getitem__(self, idx):
-        return load_wifi(self.data['file_name'][idx], self.is_train, path=self.file_path), self.data['label'][idx]
+        x = load_wifi(self.data['file_name'][idx], self.is_train, path=self.file_path)
+        if self.features:
+            x = (x, self.load_features(idx))
+        return x, self.data['label'][idx]
+
+    def load_features(self, idx):
+        part = 'train_data/' if self.is_train else 'test_data/'
+        name = self.data['file_name'][idx]
+        return torch.from_numpy(np.load(self.file_path + part + 'WiFiBand/' + name + '.npy'))
 
 
 def load_rfid(filename, is_train, path='./dataset/XRFDataset/'):

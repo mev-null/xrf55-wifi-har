@@ -12,11 +12,15 @@ Three details follow the authors' public code (github.com/windofshadow/THAT) ins
 the Gaussian means start at 0 (paper: 25, 75, ...), sigma starts at 50 and is used as the variance
 (paper: 8), and the multi-scale CNN averages its kernels (paper: adaptive scale attention).
 Also different: 55 classes, and forward() returns logits.
+n_features > 0 (not in THAT) adds feature channels (extract_features.py, one frame per time token) to
+the time tokens: 270 + n_features values each. The channel stream is unchanged.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from .feature_norm import FeatureNorm
 
 N_RX, N_SC, N_ANT, N_TIME = 3, 30, 3, 1000
 N_CH = N_RX * N_SC * N_ANT
@@ -108,27 +112,32 @@ class Aggregate(nn.Module):
 
 
 class THAT(nn.Module):
-    def __init__(self, num_classes=55, k=4, K=10, t_layers=5, t_heads=9, c_layers=1, c_heads=10):
+    def __init__(self, num_classes=55, k=4, K=10, t_layers=5, t_heads=9, c_layers=1, c_heads=10, n_features=0):
         super().__init__()
         self.k = k
         n = N_TIME // k  # number of time tokens = size of a channel token
-        self.pos = GaussianPosition(N_CH, n, K)
-        self.temporal = Encoder(N_CH, t_layers, t_heads, MultiScaleCNN)
+        d_time = N_CH + n_features  # values per time token
+        if d_time % t_heads:
+            raise ValueError(f'{d_time} values per time token cannot be split into {t_heads} heads')
+        self.feature_norm = FeatureNorm(n_features) if n_features else None
+        self.pos = GaussianPosition(d_time, n, K)
+        self.temporal = Encoder(d_time, t_layers, t_heads, MultiScaleCNN)
         self.channel = Encoder(n, c_layers, c_heads, ReceiverMCAT)
-        self.temporal_agg = Aggregate(N_CH, 128, (10, 40))
+        self.temporal_agg = Aggregate(d_time, 128, (10, 40))
         self.channel_agg = Aggregate(n, 16, (2, 4))
         self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(128 * 2 + 16 * 2, num_classes)
 
-    def forward(self, x):
+    def forward(self, x, f=None):
         b = x.size(0)
         avg = F.avg_pool1d(x, self.k)  # (b, 270, n)
-        t = self.temporal(self.pos(avg.transpose(1, 2)))  # (b, n, 270)
+        t = avg if self.feature_norm is None else torch.cat([avg, self.feature_norm(f)], 1)
+        t = self.temporal(self.pos(t.transpose(1, 2)))  # (b, n, 270 + n_features)
         c = avg.reshape(b, N_RX, N_SC, N_ANT, -1).mean(3).reshape(b, N_RX * N_SC, -1)  # (b, 90, n)
         c = self.channel(c)
         feature = torch.cat([self.temporal_agg(t), self.channel_agg(c)], 1)
         return self.fc(self.dropout(feature))
 
 
-def that():
-    return THAT()
+def that(n_features=0):
+    return THAT(n_features=n_features)

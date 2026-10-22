@@ -1,4 +1,8 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+from .feature_norm import FeatureNorm
 
 
 def conv3x3(in_planes, out_planes, stride=1, group=1):
@@ -191,8 +195,23 @@ class ResNetLargeBert3(nn.Module):
         return output, output_bert
 
 
-def resnet18():
-    """return a ResNet 18 object"""
+class ResNetFeatures(ResNet):
+    """ResNet whose input also has feature channels (extract_features.py): standardised, linearly
+    interpolated to the time steps of the amplitude and stacked under its 270 channels."""
+
+    def __init__(self, block, layers, n_features):
+        super().__init__(block, layers, inchannel=270 + n_features)
+        self.feature_norm = FeatureNorm(n_features)
+
+    def forward(self, x, f):
+        f = F.interpolate(self.feature_norm(f), size=x.size(-1), mode='linear', align_corners=False)
+        return super().forward(torch.cat([x, f], 1))
+
+
+def resnet18(n_features=0):
+    """return a ResNet 18 object; n_features > 0 adds that many feature channels to the input"""
+    if n_features:
+        return ResNetFeatures(BasicBlock, [2, 2, 2, 2], n_features)
     return ResNet(BasicBlock, [2, 2, 2, 2])
 
 

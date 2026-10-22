@@ -4,10 +4,11 @@ Derived from dml_train.py in airslab2020/XRF55-repo: one Wi-Fi model trained wit
 (no mutual-learning or BERT terms); the defaults are the optimizer and schedule of dml_train.py.
 The reported accuracy is the last epoch's; the test set is never used to pick a model.
 
-    python split_train_test.py && python generate_txt.py
+    python split_train_test.py && python generate_txt.py && python extract_features.py
     python wifi_train.py --group resnet18_baseline --seed 0
     python wifi_train.py --group that --seed 0 --subjects 1-11 --model that \
         --batch_size 16 --epochs 50 --lr 1e-4 --lr_schedule cosine --warmup_epochs 5 --grad_clip 1.0
+Add --features band to either to also feed the band power features of extract_features.py.
 
 Writes config, metrics, history, predictions and last-epoch weights to <result_root>/<group>/seed<seed>/.
 """
@@ -24,6 +25,7 @@ import torch
 import torch.nn as nn
 import torch.utils.data as Data
 
+import extract_features
 import XRFDataset
 from model import resnet1d, that
 from settings import get_settings
@@ -69,6 +71,9 @@ def parse_args():
         '--warmup_epochs', type=int, default=0, help='cosine: raise lr linearly over the first N epochs first (0: off)'
     )
     parser.add_argument('--grad_clip', type=float, default=0.0, help='clip the gradient norm to this value (0: off)')
+    parser.add_argument(
+        '--features', choices=['none', 'band'], default='none', help='band: add the features of extract_features.py'
+    )
     parser.add_argument('--num_workers', type=int, default=4, help='DataLoader workers')
     return parser.parse_args()
 
@@ -90,10 +95,11 @@ def environment():
     }
 
 
-def build_model(name):
+def build_model(name, n_features=0):
     for module in (resnet1d, that):
         if hasattr(module, name):
-            return getattr(module, name)()
+            fn = getattr(module, name)
+            return fn(n_features=n_features) if n_features else fn()
     raise ValueError(f'unknown --model {name!r}: not a function in model/resnet1d.py or model/that.py')
 
 
@@ -106,6 +112,21 @@ def cosine_schedule(warmup_steps, total_steps):
         return 0.5 * (1 + math.cos(math.pi * (step - warmup_steps) / (total_steps - warmup_steps)))
 
     return scale
+
+
+def feature_stats(dataset):
+    """Mean and std of each feature channel over all records and frames of a (train) dataset."""
+    n, s, s2 = 0, 0.0, 0.0
+    for idx in range(len(dataset)):
+        f = dataset.load_features(idx).double()
+        n, s, s2 = n + f.size(1), s + f.sum(1), s2 + f.pow(2).sum(1)
+    mean = s / n
+    return mean, (s2 / n - mean**2).clamp_min(1e-12).sqrt()
+
+
+def to_device(samples, device):
+    """Model inputs as a list: [amplitude] or [amplitude, features]."""
+    return [t.to(device) for t in samples] if isinstance(samples, (list, tuple)) else [samples.to(device)]
 
 
 def get_device():
@@ -127,7 +148,7 @@ def evaluate(model, loader, device, loss_fn):
     model.eval()
     loss, preds, labels = 0.0, [], []
     for samples, label in loader:
-        logits = logits_of(model(samples.to(device)))
+        logits = logits_of(model(*to_device(samples, device)))
         loss += loss_fn(logits, label.to(device)).item() * len(label)
         preds.append(logits.argmax(1).cpu())
         labels.append(label)
@@ -163,8 +184,10 @@ if __name__ == "__main__":
         raise FileExistsError(f"{out_dir} already exists")
 
     '''========================= Dataset =========================='''
-    train_dataset = XRFDataset.XRFWiFiDataset(settings.split_root, is_train=True, subjects=args.subjects)
-    test_dataset = XRFDataset.XRFWiFiDataset(settings.split_root, is_train=False, subjects=args.subjects)
+    use_features = args.features == 'band'
+    dataset_kw = dict(subjects=args.subjects, features=use_features)
+    train_dataset = XRFDataset.XRFWiFiDataset(settings.split_root, is_train=True, **dataset_kw)
+    test_dataset = XRFDataset.XRFWiFiDataset(settings.split_root, is_train=False, **dataset_kw)
     # persistent_workers: without it, macOS (spawn) spends ~20 s per epoch shutting workers down
     loader_kw = dict(
         batch_size=args.batch_size,
@@ -178,7 +201,10 @@ if __name__ == "__main__":
     print(f"{settings}\ndevice={device} subjects={subjects} train={len(train_dataset)} test={len(test_dataset)}")
 
     '''========================= Model =========================='''
-    model = build_model(args.model).to(device)
+    model = build_model(args.model, extract_features.N_FEATURES if use_features else 0)
+    if use_features:  # standardised with statistics of the train records only
+        model.feature_norm.fit(*feature_stats(train_dataset))
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     if args.lr_schedule == 'cosine':  # stepped after every batch
         steps = len(train_data)
@@ -214,8 +240,8 @@ if __name__ == "__main__":
         model.train()
         losses = 0.0
         for samples, labels in train_data:
-            samples, labels = samples.to(device), labels.to(device)
-            outputs = logits_of(model(samples))
+            labels = labels.to(device)
+            outputs = logits_of(model(*to_device(samples, device)))
             loss = loss_ce(outputs, labels)
             optimizer.zero_grad()
             loss.backward()
