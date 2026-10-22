@@ -1,23 +1,13 @@
-"""Wi-Fi only ResNet18 baseline (paper Table 6: 87.26%).
+"""Wi-Fi only ResNet18 baseline on XRF55 (paper Table 6: 87.26%, all subjects).
 
-Derived from dml_train.py in airslab2020/XRF55-repo. Differences:
-  - one model (Wi-Fi, model/resnet1d.py) instead of the Wi-Fi/RFID/mmWave cohort
-  - cross-entropy loss only (no KL mutual-learning term, no BERT L1 term)
-  - train and test loss every epoch as learning curves (monitoring only: the epoch count is fixed
-    and the test set is never used to pick a model); the reported accuracy is the last epoch's.
-    train_loss is the mean over the epoch while the weights are being updated (train mode);
-    test_loss is measured after the epoch with fixed weights (eval mode)
-Optimizer, learning-rate schedule, batch size and epochs default to those of dml_train.py.
+Derived from dml_train.py in airslab2020/XRF55-repo: one Wi-Fi model trained with cross-entropy only
+(no mutual-learning or BERT terms), with the same optimizer and schedule defaults.
+The reported accuracy is the last epoch's; the test set is never used to pick a model.
 
     python split_train_test.py && python generate_txt.py
-    python wifi_train.py --group resnet18_baseline --subjects 1-11 --seed 0
+    python wifi_train.py --group resnet18_baseline --seed 0
 
-Writes to <result_root>/<group>/seed<seed>/:
-  config.json       everything that determines the result (written before training)
-  metrics.json      final accuracy, per-subject/per-class accuracy, confusion matrix
-  history.json      per-epoch lr, train_loss, test_loss
-  predictions.json  last-epoch test prediction for every sample
-  model_last.pth    last-epoch weights
+Writes config, metrics, history, predictions and last-epoch weights to <result_root>/<group>/seed<seed>/.
 """
 
 import argparse
@@ -125,7 +115,9 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     device = get_device()
     out_dir = os.path.join(settings.result_root, args.group, 'seed%d' % args.seed)
-    os.makedirs(out_dir, exist_ok=False)  # never overwrite an existing run
+    # never overwrite an existing run; checked now, created only once setup has succeeded
+    if os.path.exists(out_dir):
+        raise FileExistsError(f"{out_dir} already exists")
 
     '''========================= Dataset =========================='''
     train_dataset = XRFDataset.XRFWiFiDataset(settings.split_root, is_train=True, subjects=args.subjects)
@@ -161,6 +153,7 @@ if __name__ == "__main__":
         'loss': 'cross_entropy',
         'device': str(device),
     }
+    os.makedirs(out_dir)
     dump_json(config, os.path.join(out_dir, 'config.json'))
 
     '''========================= Train (CE only) =========================='''
@@ -186,6 +179,7 @@ if __name__ == "__main__":
         history['train_loss'].append(train_loss)
         history['test_loss'].append(test_loss)
         print(f"Epoch: {epoch:3d} train_loss: {train_loss:.4f} test_loss: {test_loss:.4f}")
+        dump_json(history, os.path.join(out_dir, 'history.json'))  # rewritten every epoch to survive a crash
 
     '''========================= Save =========================='''
     torch.save(model.state_dict(), os.path.join(out_dir, 'model_last.pth'))
@@ -206,6 +200,5 @@ if __name__ == "__main__":
         'pred': preds.tolist(),
     }
     dump_json(metrics, os.path.join(out_dir, 'metrics.json'))  # final results
-    dump_json(history, os.path.join(out_dir, 'history.json'))  # per-epoch learning curves
     dump_json(predictions, os.path.join(out_dir, 'predictions.json'))  # per-sample test predictions
     print("saved to", out_dir)
