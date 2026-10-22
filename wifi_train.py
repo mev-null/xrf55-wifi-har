@@ -13,6 +13,7 @@ Writes config, metrics, history, predictions and last-epoch weights to <result_r
 import argparse
 import json
 import os
+import platform
 import re
 
 import numpy as np
@@ -63,6 +64,15 @@ def dump_json(obj, path):
     text = re.sub(r'\[\s+([^\[\]{}]*?)\s+\]', lambda m: '[' + re.sub(r',\s+', ', ', m.group(1)) + ']', text)
     with open(path, 'w') as f:
         f.write(text + '\n')
+
+
+def environment():
+    """Software versions, so that a result can be traced back to what produced it."""
+    return {
+        'python': platform.python_version(),
+        'torch': torch.__version__,
+        'os': platform.platform(),
+    }
 
 
 def get_device():
@@ -152,6 +162,7 @@ if __name__ == "__main__":
         'optimizer': 'Adam',
         'loss': 'cross_entropy',
         'device': str(device),
+        'env': environment(),
     }
     os.makedirs(out_dir)
     dump_json(config, os.path.join(out_dir, 'config.json'))
